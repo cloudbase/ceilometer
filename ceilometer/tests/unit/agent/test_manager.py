@@ -20,6 +20,7 @@ from keystoneauth1 import exceptions as ka_exceptions
 import mock
 from novaclient import client as novaclient
 from oslo_config import fixture as fixture_config
+from oslo_service import service as os_service
 from oslo_utils import fileutils
 from oslotest import base
 from oslotest import mockpatch
@@ -420,8 +421,11 @@ class TestRunTasks(agentbase.BaseAgentManagerTestCase):
                 'publishers': ["test"]}]
         }
 
-        self.mgr.polling_manager = pipeline.PollingManager(pipeline_cfg)
-        polling_task = list(self.mgr.setup_polling_tasks().values())[0]
+        self.mgr.start()
+        self.addCleanup(self.mgr.stop)
+        # Manually executes callbacks
+        for cb, __, args, kwargs in self.mgr.polling_periodics._callables:
+            cb(*args, **kwargs)
 
         self.mgr.interval_task(polling_task)
         samples = self.notified_samples
@@ -450,8 +454,9 @@ class TestRunTasks(agentbase.BaseAgentManagerTestCase):
         pipeline_cfg_file = self.setup_pipeline_file(pipeline)
 
         self.CONF.set_override("pipeline_cfg_file", pipeline_cfg_file)
-        self.mgr.run()
-        self.addCleanup(self.mgr.terminate)
+        self.mgr.tg = os_service.threadgroup.ThreadGroup(1000)
+        self.mgr.start()
+        self.addCleanup(self.mgr.stop)
 
         # we only got the old name of meters
         for sample in self.notified_samples:

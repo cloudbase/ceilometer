@@ -15,9 +15,9 @@
 
 import abc
 
-import cotyledon
 from oslo_config import cfg
 from oslo_log import log
+from oslo_service import service as os_service
 import six
 
 from ceilometer.i18n import _LE
@@ -27,8 +27,18 @@ from ceilometer import utils
 LOG = log.getLogger(__name__)
 
 
+class ServiceBase(os_service.Service):
+    def __init__(self):
+        self.started = False
+        super(ServiceBase, self).__init__()
+
+    def start(self):
+        self.started = True
+        super(ServiceBase, self).start()
+
+
 @six.add_metaclass(abc.ABCMeta)
-class PipelineBasedService(cotyledon.Service):
+class PipelineBasedService(ServiceBase):
     def clear_pipeline_validation_status(self):
         """Clears pipeline validation status flags."""
         self.pipeline_validated = False
@@ -46,10 +56,11 @@ class PipelineBasedService(cotyledon.Service):
                 spacing=cfg.CONF.pipeline_polling_interval)
             utils.spawn_thread(self.refresh_pipeline_periodic.start)
 
-    def terminate(self):
-        if self.refresh_pipeline_periodic:
+    def stop(self):
+        if self.started and self.refresh_pipeline_periodic:
             self.refresh_pipeline_periodic.stop()
             self.refresh_pipeline_periodic.wait()
+        super(PipelineBasedService, self).stop()
 
     @abc.abstractmethod
     def reload_pipeline(self):

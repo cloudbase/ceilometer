@@ -76,8 +76,7 @@ class TestCollector(tests_base.BaseTestCase):
             ),
             'not-so-secret')
 
-        self.mock_dispatcher = self._setup_fake_dispatcher()
-        self.srv = collector.CollectorService(0)
+        self.srv = collector.CollectorService()
 
     def _setup_messaging(self, enabled=True):
         if enabled:
@@ -119,15 +118,13 @@ class TestCollector(tests_base.BaseTestCase):
 
         udp_socket = self._make_fake_socket(self.sample)
 
-        with mock.patch('select.select', return_value=([udp_socket], [], [])):
-            with mock.patch('socket.socket') as mock_socket:
-                mock_socket.return_value = udp_socket
-                self.srv.run()
-                self.addCleanup(self.srv.terminate)
-                self.srv.udp_thread.join(5)
-                self.assertFalse(self.srv.udp_thread.is_alive())
-                mock_socket.assert_called_with(socket.AF_INET,
-                                               socket.SOCK_DGRAM)
+        with mock.patch('socket.socket') as mock_socket:
+            mock_socket.return_value = udp_socket
+            self.srv.start()
+            self.addCleanup(self.srv.stop)
+            self.srv.udp_thread.join(5)
+            self.assertFalse(self.srv.udp_thread.is_alive())
+            mock_socket.assert_called_with(socket.AF_INET, socket.SOCK_DGRAM)
 
         self._verify_udp_socket(udp_socket)
         mock_record = self.mock_dispatcher.record_metering_data
@@ -138,15 +135,13 @@ class TestCollector(tests_base.BaseTestCase):
         self.CONF.set_override('udp_address', '::1', group='collector')
         sock = self._make_fake_socket(self.sample)
 
-        with mock.patch('select.select', return_value=([sock], [], [])):
-            with mock.patch.object(socket, 'socket') as mock_socket:
-                mock_socket.return_value = sock
-                self.srv.run()
-                self.addCleanup(self.srv.terminate)
-                self.srv.udp_thread.join(5)
-                self.assertFalse(self.srv.udp_thread.is_alive())
-                mock_socket.assert_called_with(socket.AF_INET6,
-                                               socket.SOCK_DGRAM)
+        with mock.patch.object(socket, 'socket') as mock_socket:
+            mock_socket.return_value = sock
+            self.srv.start()
+            self.addCleanup(self.srv.stop)
+            self.srv.udp_thread.join(5)
+            self.assertFalse(self.srv.udp_thread.is_alive())
+            mock_socket.assert_called_with(socket.AF_INET6, socket.SOCK_DGRAM)
 
     def test_udp_receive_storage_error(self):
         self._setup_messaging(False)
@@ -154,12 +149,11 @@ class TestCollector(tests_base.BaseTestCase):
         mock_record.side_effect = self._raise_error
 
         udp_socket = self._make_fake_socket(self.sample)
-        with mock.patch('select.select', return_value=([udp_socket], [], [])):
-            with mock.patch('socket.socket', return_value=udp_socket):
-                self.srv.run()
-                self.addCleanup(self.srv.terminate)
-                self.srv.udp_thread.join(5)
-                self.assertFalse(self.srv.udp_thread.is_alive())
+        with mock.patch('socket.socket', return_value=udp_socket):
+            self.srv.start()
+            self.addCleanup(self.srv.stop)
+            self.srv.udp_thread.join(5)
+            self.assertFalse(self.srv.udp_thread.is_alive())
 
         self._verify_udp_socket(udp_socket)
 
@@ -174,8 +168,8 @@ class TestCollector(tests_base.BaseTestCase):
         udp_socket = self._make_fake_socket(self.sample)
         with mock.patch('socket.socket', return_value=udp_socket):
             with mock.patch('msgpack.loads', self._raise_error):
-                self.srv.run()
-                self.addCleanup(self.srv.terminate)
+                self.srv.start()
+                self.addCleanup(self.srv.stop)
                 self.srv.udp_thread.join(5)
                 self.assertFalse(self.srv.udp_thread.is_alive())
 
@@ -190,8 +184,8 @@ class TestCollector(tests_base.BaseTestCase):
         with mock.patch.object(oslo_messaging.MessageHandlingServer,
                                'start', side_effect=real_start) as rpc_start:
             with mock.patch('socket.socket', return_value=udp_socket):
-                self.srv.run()
-                self.addCleanup(self.srv.terminate)
+                self.srv.start()
+                self.addCleanup(self.srv.stop)
                 self.srv.udp_thread.join(5)
                 self.assertFalse(self.srv.udp_thread.is_alive())
                 self.assertEqual(0, rpc_start.call_count)
@@ -199,17 +193,17 @@ class TestCollector(tests_base.BaseTestCase):
 
     def test_udp_receive_valid_encoding(self):
         self._setup_messaging(False)
+        mock_dispatcher = self._setup_fake_dispatcher()
         self.data_sent = []
-        sock = self._make_fake_socket(self.utf8_msg)
-        with mock.patch('select.select', return_value=([sock], [], [])):
-            with mock.patch('socket.socket', return_value=sock):
-                self.srv.run()
-                self.addCleanup(self.srv.terminate)
-                self.srv.udp_thread.join(5)
-                self.assertFalse(self.srv.udp_thread.is_alive())
-                self.assertTrue(utils.verify_signature(
-                    self.mock_dispatcher.method_calls[0][1][0],
-                    "not-so-secret"))
+        with mock.patch('socket.socket',
+                        return_value=self._make_fake_socket(self.utf8_msg)):
+            self.srv.start()
+            self.addCleanup(self.srv.stop)
+            self.srv.udp_thread.join(5)
+            self.assertFalse(self.srv.udp_thread.is_alive())
+            self.assertTrue(utils.verify_signature(
+                mock_dispatcher.method_calls[0][1][0],
+                "not-so-secret"))
 
     def _test_collector_requeue(self, listener, batch_listener=False):
 
@@ -218,8 +212,8 @@ class TestCollector(tests_base.BaseTestCase):
         mock_record.side_effect = Exception('boom')
         self.mock_dispatcher.record_events.side_effect = Exception('boom')
 
-        self.srv.run()
-        self.addCleanup(self.srv.terminate)
+        self.srv.start()
+        self.addCleanup(self.srv.stop)
         endp = getattr(self.srv, listener).dispatcher.endpoints[0]
         ret = endp.sample([{'ctxt': {}, 'publisher_id': 'pub_id',
                             'event_type': 'event', 'payload': {},

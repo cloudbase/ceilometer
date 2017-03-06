@@ -143,8 +143,8 @@ class NotificationService(service_base.PipelineBasedService):
 
         return event_pipe_manager
 
-    def run(self):
-        super(NotificationService, self).run()
+    def start(self):
+        super(NotificationService, self).start()
         self.shutdown = False
         self.periodic = None
         self.partition_coordinator = None
@@ -307,18 +307,19 @@ class NotificationService(service_base.PipelineBasedService):
         batch = (1 if cfg.CONF.notification.batch_size > 1 else None)
         self.pipeline_listener.start(override_pool_size=batch)
 
-    def terminate(self):
-        self.shutdown = True
-        if self.periodic:
-            self.periodic.stop()
-            self.periodic.wait()
-        if self.partition_coordinator:
-            self.partition_coordinator.stop()
-        with self.coord_lock:
-            if self.pipeline_listener:
-                utils.kill_listeners([self.pipeline_listener])
-            utils.kill_listeners(self.listeners)
-        super(NotificationService, self).terminate()
+    def stop(self):
+        if self.started:
+            self.shutdown = True
+            if self.periodic:
+                self.periodic.stop()
+                self.periodic.wait()
+            if self.partition_coordinator:
+                self.partition_coordinator.stop()
+            with self.coord_lock:
+                if self.pipeline_listener:
+                    utils.kill_listeners([self.pipeline_listener])
+                utils.kill_listeners(self.listeners)
+        super(NotificationService, self).stop()
 
     def reload_pipeline(self):
         LOG.info(_LI("Reloading notification agent and listeners."))

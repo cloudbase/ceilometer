@@ -14,8 +14,8 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import cotyledon
 from oslo_config import cfg
+from oslo_service import service as os_service
 
 from ceilometer import collector
 from ceilometer import service
@@ -25,6 +25,5 @@ CONF = cfg.CONF
 
 def main():
     service.prepare_service()
-    sm = cotyledon.ServiceManager()
-    sm.add(collector.CollectorService, workers=CONF.collector.workers)
-    sm.run()
+    os_service.launch(CONF, collector.CollectorService(),
+                      workers=CONF.collector.workers).wait()
