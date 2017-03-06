@@ -227,8 +227,7 @@ class PollingTask(object):
 
 class AgentManager(service_base.PipelineBasedService):
 
-    def __init__(self, worker_id, conf, namespaces=None, pollster_list=None, ):
-
+    def __init__(self, conf, namespaces=None, pollster_list=None):
         namespaces = namespaces or ['compute', 'central']
         pollster_list = pollster_list or []
         group_prefix = conf.polling.partitioning_group_prefix
@@ -239,7 +238,7 @@ class AgentManager(service_base.PipelineBasedService):
         if pollster_list and conf.coordination.backend_url:
             raise PollsterListForbidden()
 
-        super(AgentManager, self).__init__(worker_id, conf)
+        super(AgentManager, self).__init__(conf)
 
         def _match(pollster):
             """Find out if pollster name matches to one of the list."""
@@ -418,18 +417,19 @@ class AgentManager(service_base.PipelineBasedService):
 
         utils.spawn_thread(self.polling_periodics.start, allow_empty=True)
 
-    def run(self):
-        super(AgentManager, self).run()
+    def start(self):
+        super(AgentManager, self).start()
         self.polling_manager = pipeline.setup_polling(self.conf)
         self.join_partitioning_groups()
         self.start_polling_tasks()
         self.init_pipeline_refresh()
 
-    def terminate(self):
-        self.stop_pollsters_tasks()
-        self.heartbeat_timer.stop()
-        self.partition_coordinator.stop()
-        super(AgentManager, self).terminate()
+    def stop(self):
+        if self.started:
+            self.stop_pollsters_tasks()
+            self.heartbeat_timer.stop()
+            self.partition_coordinator.stop()
+        super(AgentManager, self).stop()
 
     def interval_task(self, task):
         # NOTE(sileht): remove the previous keystone client
