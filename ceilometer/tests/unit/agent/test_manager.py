@@ -16,6 +16,7 @@
 import fixtures
 from keystoneauth1 import exceptions as ka_exceptions
 import mock
+from oslo_service import service as os_service
 from oslo_utils import fileutils
 from oslotest import base
 import six
@@ -452,10 +453,11 @@ class TestRunTasks(agentbase.BaseAgentManagerTestCase):
                 'publishers': ["test"]}]
         }
 
-        self.mgr.polling_manager = pipeline.PollingManager(
-            self.CONF,
-            self.cfg2file(pipeline_cfg))
-        polling_task = list(self.mgr.setup_polling_tasks().values())[0]
+        self.mgr.start()
+        self.addCleanup(self.mgr.stop)
+        # Manually executes callbacks
+        for cb, __, args, kwargs in self.mgr.polling_periodics._callables:
+            cb(*args, **kwargs)
 
         self.mgr.interval_task(polling_task)
         samples = self.notified_samples
