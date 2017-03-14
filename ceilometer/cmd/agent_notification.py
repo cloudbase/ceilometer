@@ -14,8 +14,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import cotyledon
-from cotyledon import oslo_config_glue
+from oslo_service import service as os_service
 
 from ceilometer import notification
 from ceilometer import service
@@ -23,9 +22,5 @@ from ceilometer import service
 
 def main():
     conf = service.prepare_service()
-
-    sm = cotyledon.ServiceManager()
-    sm.add(notification.NotificationService,
-           workers=conf.notification.workers, args=(conf,))
-    oslo_config_glue.setup(sm, conf)
-    sm.run()
+    os_service.launch(conf, notification.NotificationService(),
+                      workers=conf.notification.workers).wait()
