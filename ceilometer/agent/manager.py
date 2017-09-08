@@ -40,6 +40,7 @@ from ceilometer import keystone_client
 from ceilometer import messaging
 from ceilometer import pipeline
 from ceilometer.publisher import utils as publisher_utils
+from ceilometer import service_base
 from ceilometer import utils
 
 LOG = log.getLogger(__name__)
@@ -229,9 +230,9 @@ class PollingTask(object):
         )
 
 
-class AgentManager(cotyledon.Service):
+class AgentManager(service_base.PipelineBasedService):
 
-    def __init__(self, worker_id, conf, namespaces=None, pollster_list=None):
+    def __init__(self, conf, namespaces=None, pollster_list=None):
         namespaces = namespaces or ['compute', 'central']
         pollster_list = pollster_list or []
         group_prefix = conf.polling.partitioning_group_prefix
@@ -242,7 +243,7 @@ class AgentManager(cotyledon.Service):
         if pollster_list and conf.coordination.backend_url:
             raise PollsterListForbidden()
 
-        super(AgentManager, self).__init__(worker_id)
+        super(AgentManager, self).__init__(conf)
 
         self.conf = conf
 
@@ -411,19 +412,19 @@ class AgentManager(cotyledon.Service):
 
         utils.spawn_thread(self.polling_periodics.start, allow_empty=True)
 
-    def run(self):
-        super(AgentManager, self).run()
+    def start(self):
+        super(AgentManager, self).start()
         self.polling_manager = pipeline.setup_polling(self.conf)
         if self.partition_coordinator:
             self.partition_coordinator.start()
             self.join_partitioning_groups()
         self.start_polling_tasks()
 
-    def terminate(self):
-        self.stop_pollsters_tasks()
-        if self.partition_coordinator:
+    def stop(self):
+        if self.started:
+            self.stop_pollsters_tasks()
             self.partition_coordinator.stop()
-        super(AgentManager, self).terminate()
+        super(AgentManager, self).stop()
 
     def interval_task(self, task):
         # NOTE(sileht): remove the previous keystone client
@@ -521,3 +522,18 @@ class AgentManager(cotyledon.Service):
             self.polling_periodics.stop()
             self.polling_periodics.wait()
         self.polling_periodics = None
+
+    # FIXME(gordc): refactor pipeline dependency out of polling agent.
+    def reload_pipeline(self):
+        if self.pipeline_validated:
+            LOG.info(_LI("Reconfiguring polling tasks."))
+
+            # stop existing pollsters and leave partitioning groups
+            self.stop_pollsters_tasks()
+            for group in self.groups:
+                self.partition_coordinator.leave_group(group)
+
+            # re-create partitioning groups according to pipeline
+            # and configure polling tasks with latest pipeline conf
+            self.join_partitioning_groups()
+            self.start_polling_tasks()

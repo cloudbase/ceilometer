@@ -14,10 +14,9 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import cotyledon
-from cotyledon import oslo_config_glue
 from oslo_config import cfg
 from oslo_log import log
+from oslo_service import service as os_service
 
 from ceilometer.agent import manager
 from ceilometer import service
@@ -76,18 +75,9 @@ CLI_OPTS = [
 ]
 
 
-def create_polling_service(worker_id, conf):
-    return manager.AgentManager(worker_id,
-                                conf,
-                                conf.polling_namespaces,
-                                conf.pollster_list)
-
-
 def main():
     conf = cfg.ConfigOpts()
     conf.register_cli_opts(CLI_OPTS)
     service.prepare_service(conf=conf)
-    sm = cotyledon.ServiceManager()
-    sm.add(create_polling_service, args=(conf,))
-    oslo_config_glue.setup(sm, conf)
-    sm.run()
+    os_service.launch(conf, manager.AgentManager(conf, conf.polling_namespaces,
+                                                 conf.pollster_list)).wait()

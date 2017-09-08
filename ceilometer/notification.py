@@ -176,11 +176,11 @@ class NotificationService(cotyledon.Service):
 
         return event_pipe_manager
 
-    def run(self):
+    def start(self):
         # Delay startup so workers are jittered
         time.sleep(self.startup_delay)
 
-        super(NotificationService, self).run()
+        super(NotificationService, self).start()
         self.coord_lock = threading.Lock()
 
         self.pipeline_manager = pipeline.setup_pipeline(self.conf)
@@ -318,19 +318,19 @@ class NotificationService(cotyledon.Service):
                  else self.conf.max_parallel_requests)
         self.pipeline_listener.start(override_pool_size=batch)
 
-    def terminate(self):
-        self.shutdown = True
-        if self.periodic:
-            self.periodic.stop()
-            self.periodic.wait()
-        if self.partition_coordinator:
-            self.partition_coordinator.stop()
-        with self.coord_lock:
-            if self.pipeline_listener:
-                utils.kill_listeners([self.pipeline_listener])
-            utils.kill_listeners(self.listeners)
-
-        super(NotificationService, self).terminate()
+    def stop(self):
+        if self.started:
+            self.shutdown = True
+            if self.periodic:
+                self.periodic.stop()
+                self.periodic.wait()
+            if self.partition_coordinator:
+                self.partition_coordinator.stop()
+            with self.coord_lock:
+                if self.pipeline_listener:
+                    utils.kill_listeners([self.pipeline_listener])
+                utils.kill_listeners(self.listeners)
+        super(NotificationService, self).stop()
 
 
 class NotificationProcessBase(plugin_base.NotificationBase):
